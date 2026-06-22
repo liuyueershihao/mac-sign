@@ -325,83 +325,6 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
             "$APP_PATH"
     fi
 
-    info "校验签名（1.4G app 可能需要 1-5 分钟，最多等 ${VERIFY_TIMEOUT}s）..."
-    # codesign 写到文件/管道是块缓冲，必须给伪 TTY 才实时输出
-    # macOS script -q 命令能创建伪 TTY 强制行缓冲
-    # 同时后台跑 codesign + spinner 显示进度
-    # 加超时保护：codesign hang 住时跳过本地 verify（notarytool 服务端会自己验证）
-    VERIFY_TIMEOUT=${VERIFY_TIMEOUT:-300}  # 5 分钟
-    verify_out=$(mktemp -t verify.XXXXXX)
-    ( script -q "$verify_out" codesign --verify --deep --verbose=2 "$APP_PATH" >/dev/null 2>&1; echo $? >"$verify_out.rc" ) &
-    bg_pid=$!
-    SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    i=0
-    elapsed=0
-    last_validated=-1
-    no_progress_count=0
-    timed_out=0
-    while kill -0 "$bg_pid" 2>/dev/null; do
-        sleep 2
-        elapsed=$((elapsed + 2))
-        validated=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null | head -1)
-        validated=${validated:-0}
-        printf "\r  ${SPIN:$((i % 10)):1} codesign 校验中... 已等待 ${elapsed}s  已验证 ${validated} 个组件  "
-        i=$((i + 1))
-        # 检测进度停滞
-        if [[ "$validated" == "$last_validated" ]]; then
-            no_progress_count=$((no_progress_count + 1))
-        else
-            no_progress_count=0
-            last_validated="$validated"
-        fi
-        # 超时条件：超过总时间 OR 停滞超过 60s
-        if [[ $elapsed -ge $VERIFY_TIMEOUT ]]; then
-            warn "\n  ⏱  verify 超过 ${VERIFY_TIMEOUT}s 还没完成，强制跳过"
-            kill -TERM "$bg_pid" 2>/dev/null
-            pkill -P $$  # 杀掉所有子进程（包括 script/codesign）
-            timed_out=1
-            break
-        fi
-    done
-    echo
-    if [[ $timed_out -eq 0 ]]; then
-        wait "$bg_pid" 2>/dev/null
-        verify_rc=$(cat "$verify_out.rc" 2>/dev/null || echo 1)
-    else
-        verify_rc=124  # timeout 退出码
-    fi
-    rm -f "$verify_out.rc"
-    # script 输出有 \r 字符，清理
-    tr '\r' '\n' < "$verify_out" > "${verify_out}.clean" 2>/dev/null
-    mv "${verify_out}.clean" "$verify_out" 2>/dev/null
-
-    validated_count=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null | head -1)
-    validated_count=${validated_count:-0}
-    is_ambiguous=$(grep -c "ambiguous (could be app or framework)" "$verify_out" 2>/dev/null | head -1)
-    is_ambiguous=${is_ambiguous:-0}
-
-    # 逐行打印 codesign 输出
-    while IFS= read -r line; do
-        case "$line" in
-            --validated:*) printf "  ✓ %s\n" "$line" ;;
-            --prepared:*)  printf "  · %s\n" "$line" ;;
-            *)             [[ -n "$line" ]] && printf "    %s\n" "$line" ;;
-        esac
-    done <"$verify_out"
-    rm -f "$verify_out"
-
-    if [[ $timed_out -eq 1 ]]; then
-        warn "verify 超时跳过（已验证 $validated_count 个组件，Apple notarytool 服务端会做完整验证）"
-    elif [[ $verify_rc -eq 0 ]]; then
-        ok "签名校验通过（$validated_count 个组件已验证）"
-    else
-        if [[ $is_ambiguous -gt 0 ]]; then
-            warn "  ⚠️  verify 报告 ambiguous（Electron Framework 顶层结构问题，与脚本无关）"
-            warn "  ℹ️  $validated_count 个组件签成功，Apple notarytool 服务端会接受"
-        else
-            warn "verify 返回非 0（rc=$verify_rc）"
-        fi
-    fi
     ok "签名完成"
 fi
 
@@ -423,84 +346,49 @@ if [[ $SKIP_NOTARIZE -eq 0 ]]; then
     OUT_DIR="$(dirname "$APP_PATH")/dist"
     mkdir -p "$OUT_DIR"
     ZIP_PATH="$OUT_DIR/$APP_NAME.zip"
-
-    # 1) 打包 zip，显示压缩进度
-    APP_SIZE_BYTES=$(du -sb "$APP_PATH" | awk '{print $1}')
-    APP_SIZE_HR=$(du -sh "$APP_PATH" | awk '{print $1}')
-    info "打包 zip（源: $APP_SIZE_HR）..."
-    if command -v pv >/dev/null 2>&1; then
-        tar cf - -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")" 2>/dev/null \
-            | pv -s "$APP_SIZE_BYTES" -N "  压缩进度" \
-            | ditto -c -k --sequesterRsrc - "$ZIP_PATH"
-    else
-        ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
-    fi
-    ZIP_SIZE_HR=$(du -sh "$ZIP_PATH" | awk '{print $1}')
-    ok "zip 完成: $ZIP_SIZE_HR"
-
-    # 2) 分两阶段：上传（--no-wait） + 轮询处理进度
-    info "提交公证（上传 + 等待处理，会显示状态）..."
     NOTARY_JSON="$OUT_DIR/$APP_NAME.notary.json"
+
+    info "打包 zip..."
+    ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+    ok "zip 完成"
+
+    info "提交公证..."
     NOTARY_RETRY_MAX=${NOTARY_RETRY_MAX:-5}
     NOTARY_RETRY_DELAY=${NOTARY_RETRY_DELAY:-10}
     NOTARY_STATUS=""
     SUBMISSION_ID=""
 
-    upload_submission() {
-        xcrun notarytool submit "$ZIP_PATH" \
+    for attempt in $(seq 1 $NOTARY_RETRY_MAX); do
+        if xcrun notarytool submit "$ZIP_PATH" \
             --key "$AC_API_KEY_PATH" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
-            --no-wait \
-            --output-format json
-    }
-
-    poll_status() {
-        local id="$1"
-        local out="$2"
-        local SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-        local i=0
-        local start_ts
-        start_ts=$(date +%s)
-        while true; do
-            local info_json status elapsed
-            info_json=$(xcrun notarytool info "$id" \
-                --key "$AC_API_KEY_PATH" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" 2>/dev/null)
-            status=$(echo "$info_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('status','Unknown'))" 2>/dev/null || echo "Unknown")
-            elapsed=$(( $(date +%s) - start_ts ))
-            printf "\r  ${SPIN:$((i % 10)):1} 等待 Apple 处理... 状态: %-10s 已等待: %ds  " "$status" "$elapsed"
-            i=$((i + 1))
-            if [[ "$status" == "Accepted" || "$status" == "Invalid" || "$status" == "Rejected" ]]; then
-                echo
-                echo "$info_json" > "$out"
-                return 0
+            --wait \
+            --output-format json >"$NOTARY_JSON" 2>/tmp/notaryerr.$$; then
+            NOTARY_STATUS=$(python3 -c "import json;print(json.load(open('$NOTARY_JSON')).get('status','Unknown'))" 2>/dev/null || echo "Unknown")
+            if [[ "$NOTARY_STATUS" == "Accepted" ]]; then
+                break
             fi
-            sleep 5
-        done
-    }
-
-    for attempt in $(seq 1 $NOTARY_RETRY_MAX); do
-        info "  [尝试 $attempt/$NOTARY_RETRY_MAX] 上传 zip 到 Apple S3..."
-        local_err=$(mktemp -t notaryerr.XXXXXX)
-        if submit_out=$(upload_submission 2>"$local_err"); then
-            SUBMISSION_ID=$(echo "$submit_out" | python3 -c "import json,sys;print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
-            if [[ -n "$SUBMISSION_ID" ]]; then
-                ok "  上传完成 ✓ submission id: $SUBMISSION_ID"
-                poll_status "$SUBMISSION_ID" "$NOTARY_JSON"
-                NOTARY_STATUS=$(python3 -c "import json;print(json.load(open('$NOTARY_JSON')).get('status','Unknown'))" 2>/dev/null || echo "Unknown")
+            # 非网络错误（如 Invalid）直接退出
+            if ! grep -q -E "deadlineExceeded|abortedUpload|network|connection|timeout" /tmp/notaryerr.$$ 2>/dev/null; then
+                break
+            fi
+            warn "网络错误，${NOTARY_RETRY_DELAY}s 后重试"
+            sleep "$NOTARY_RETRY_DELAY"
+        else
+            if grep -q -E "deadlineExceeded|abortedUpload|network|connection|timeout" /tmp/notaryerr.$$ 2>/dev/null; then
+                warn "上传超时，${NOTARY_RETRY_DELAY}s 后重试"
+                sleep "$NOTARY_RETRY_DELAY"
+            else
+                cat /tmp/notaryerr.$$
+                err "submit 失败"
                 break
             fi
         fi
-        if grep -q -E "deadlineExceeded|abortedUpload|network|connection|timeout" "$local_err" 2>/dev/null; then
-            warn "  上传超时/网络错误，${NOTARY_RETRY_DELAY}s 后重试"
-            sleep "$NOTARY_RETRY_DELAY"
-        else
-            cat "$local_err" >&2
-            err "  submit 失败（非网络错误）"
-            break
-        fi
-        rm -f "$local_err"
     done
+    rm -f /tmp/notaryerr.$$
+
+    SUBMISSION_ID=$(python3 -c "import json;print(json.load(open('$NOTARY_JSON')).get('id',''))" 2>/dev/null || echo "")
 
     if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
         err "公证失败: $NOTARY_STATUS"
