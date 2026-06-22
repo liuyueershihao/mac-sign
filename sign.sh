@@ -285,7 +285,7 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
             codesign --force --options=runtime --timestamp \
                 --sign "$APP_SIGN_IDENTITY" \
                 --keychain "$KEYCHAIN_PATH" \
-                "$f" 2>/dev/null || warn "   macho 签名失败（继续）: $f"
+                "$f" || warn "   macho 签名失败（继续）: $f"
         done < <(awk -F/ '{print NF, $0}' "$MACHO_LIST" | sort -rn | cut -d' ' -f2-)
         rm -f "$MACHO_LIST"
 
