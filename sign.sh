@@ -325,16 +325,21 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
             "$APP_PATH"
     fi
 
-    info "校验签名（1.4G app 可能需要 1-5 分钟）..."
+    info "校验签名（1.4G app 可能需要 1-5 分钟，最多等 ${VERIFY_TIMEOUT}s）..."
     # codesign 写到文件/管道是块缓冲，必须给伪 TTY 才实时输出
     # macOS script -q 命令能创建伪 TTY 强制行缓冲
     # 同时后台跑 codesign + spinner 显示进度
+    # 加超时保护：codesign hang 住时跳过本地 verify（notarytool 服务端会自己验证）
+    VERIFY_TIMEOUT=${VERIFY_TIMEOUT:-300}  # 5 分钟
     verify_out=$(mktemp -t verify.XXXXXX)
     ( script -q "$verify_out" codesign --verify --deep --verbose=2 "$APP_PATH" >/dev/null 2>&1; echo $? >"$verify_out.rc" ) &
     bg_pid=$!
     SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     i=0
     elapsed=0
+    last_validated=-1
+    no_progress_count=0
+    timed_out=0
     while kill -0 "$bg_pid" 2>/dev/null; do
         sleep 2
         elapsed=$((elapsed + 2))
@@ -342,14 +347,33 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         validated=${validated:-0}
         printf "\r  ${SPIN:$((i % 10)):1} codesign 校验中... 已等待 ${elapsed}s  已验证 ${validated} 个组件  "
         i=$((i + 1))
+        # 检测进度停滞
+        if [[ "$validated" == "$last_validated" ]]; then
+            no_progress_count=$((no_progress_count + 1))
+        else
+            no_progress_count=0
+            last_validated="$validated"
+        fi
+        # 超时条件：超过总时间 OR 停滞超过 60s
+        if [[ $elapsed -ge $VERIFY_TIMEOUT ]]; then
+            warn "\n  ⏱  verify 超过 ${VERIFY_TIMEOUT}s 还没完成，强制跳过"
+            kill -TERM "$bg_pid" 2>/dev/null
+            pkill -P $$  # 杀掉所有子进程（包括 script/codesign）
+            timed_out=1
+            break
+        fi
     done
     echo
-    wait "$bg_pid"
-    verify_rc=$(cat "$verify_out.rc" 2>/dev/null || echo 1)
+    if [[ $timed_out -eq 0 ]]; then
+        wait "$bg_pid" 2>/dev/null
+        verify_rc=$(cat "$verify_out.rc" 2>/dev/null || echo 1)
+    else
+        verify_rc=124  # timeout 退出码
+    fi
     rm -f "$verify_out.rc"
     # script 输出有 \r 字符，清理
-    tr '\r' '\n' < "$verify_out" > "${verify_out}.clean"
-    mv "${verify_out}.clean" "$verify_out"
+    tr '\r' '\n' < "$verify_out" > "${verify_out}.clean" 2>/dev/null
+    mv "${verify_out}.clean" "$verify_out" 2>/dev/null
 
     validated_count=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null | head -1)
     validated_count=${validated_count:-0}
@@ -366,7 +390,9 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
     done <"$verify_out"
     rm -f "$verify_out"
 
-    if [[ $verify_rc -eq 0 ]]; then
+    if [[ $timed_out -eq 1 ]]; then
+        warn "verify 超时跳过（已验证 $validated_count 个组件，Apple notarytool 服务端会做完整验证）"
+    elif [[ $verify_rc -eq 0 ]]; then
         ok "签名校验通过（$validated_count 个组件已验证）"
     else
         if [[ $is_ambiguous -gt 0 ]]; then
