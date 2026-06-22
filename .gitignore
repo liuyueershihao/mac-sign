@@ -15,4 +15,5 @@ dist/
 *.swp
 
 # 临时
-*.tmp*.log
+*.tmp
+*.log
