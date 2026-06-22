@@ -253,77 +253,65 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
 
     FW="$APP_PATH/Contents/Frameworks"
     if [[ -d "$FW" ]]; then
-        # 1) Helper apps（独立的 .app，--deep 不会处理这些）
+        # 1) Helper apps（独立的 .app）
         while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
             echo "   signing helper app: $f"
             codesign --force --deep --options=runtime --timestamp \
                 --entitlements "$ENTITLEMENTS" \
                 --sign "$APP_SIGN_IDENTITY" \
                 --keychain "$KEYCHAIN_PATH" \
                 "$f"
-        done < <(find "$FW" -maxdepth 2 -name "*.app" -type d | sort)
+        done < <(find "$FW" -maxdepth 2 -name "*.app" -type d 2>/dev/null | sort)
 
-        # 2) framework 内的 Mach-O 二进制（用 file 过滤，更准）
-        sign_macho() {
-            local f="$1"
-            [[ -f "$f" ]] || return 0
-            # 跳过明显非二进制的文件
-            case "$f" in
-                */Info.plist|*.txt|*.html|*.json|*.png|*.icns|*.strings|*.pak|*.bin|*.lproj/*) return 0 ;;
+        # 2) 找出所有 framework 内部 Mach-O（包括无扩展名的）
+        #    从深到浅排序（先签最深的），保证嵌套签名的正确性
+        info "  扫描 Mach-O 二进制..."
+        MACHO_LIST=$(mktemp -t macho.XXXXXX)
+        find "$FW" -type f 2>/dev/null | while IFS= read -r ff; do
+            case "$ff" in
+                */Info.plist|*.plist|*.txt|*.html|*.json|*.png|*.icns|*.strings|*.pak|*.bin) continue ;;
+                *.lproj/*) continue ;;
             esac
-            file -b "$f" 2>/dev/null | grep -q "Mach-O" || return 0
-            echo "   signing framework binary: $f"
+            if file -b "$ff" 2>/dev/null | grep -q "Mach-O"; then
+                echo "$ff" >>"$MACHO_LIST"
+            fi
+        done
+
+        # 按深度从深到浅排序
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            echo "   signing macho: $f"
             codesign --force --options=runtime --timestamp \
                 --sign "$APP_SIGN_IDENTITY" \
                 --keychain "$KEYCHAIN_PATH" \
-                "$f"
-        }
+                "$f" 2>/dev/null || warn "   macho 签名失败（继续）: $f"
+        done < <(awk -F/ '{print NF, $0}' "$MACHO_LIST" | sort -rn | cut -d' ' -f2-)
+        rm -f "$MACHO_LIST"
 
-        # 优先：dylib/so/明确 Mach-O
-        while IFS= read -r f; do
-            [[ -n "$f" ]] && sign_macho "$f"
-        done < <(find "$FW" -type f \( -name "*.dylib" -o -name "*.so" -o -name "chrome_crashpad_handler" -o -name "*.node" \) 2>/dev/null | sort)
-
-        # 其次：framework 内顶层可执行文件
-        while IFS= read -r f; do
-            [[ -n "$f" ]] && sign_macho "$f"
-        done < <(find "$FW/Versions" -maxdepth 4 -type f 2>/dev/null | sort -u)
-
-        # 主二进制（顶层 .framework 根下的可执行）
-        for f in "$FW/Electron Framework" "$FW/Helpers/chrome_crashpad_handler"; do
-            [[ -f "$f" ]] && sign_macho "$f"
-        done
-
-        # 3) framework 顶层（用 --no-strict 兼容 Electron 的 ambiguous 框架结构）
+        # 3) framework 顶层
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing framework bundle: $f"
             if ! codesign --force --options=runtime --timestamp \
                 --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" 2>/dev/null; then
                 codesign --force --no-strict --options=runtime --timestamp \
-                    --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f"
+                    --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" || true
             fi
-        done < <(find "$FW" -maxdepth 2 \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" \) 2>/dev/null | sort)
+        done < <(find "$FW" -maxdepth 2 -name "*.framework" 2>/dev/null | sort)
     fi
 
+    # 4) 主二进制
     MAIN="$APP_PATH/Contents/MacOS/$APP_NAME"
     [[ -x "$MAIN" ]] && { echo "   signing main binary: $MAIN"; codesign --force --options=runtime --timestamp --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$MAIN"; }
 
+    # 5) 主 App（不带 --deep，避免覆盖已经手动签好的 framework 内部）
     info "签名主 App: $APP_PATH"
-    if codesign --force --deep --options=runtime --timestamp \
+    codesign --force --options=runtime --timestamp \
         --entitlements "$ENTITLEMENTS" \
         --sign "$APP_SIGN_IDENTITY" \
         --keychain "$KEYCHAIN_PATH" \
-        "$APP_PATH" 2>/dev/null; then
-        ok "主 App 签名成功"
-    else
-        warn "主 App --deep 失败，用 --deep --no-strict 重试（兼容 Electron Framework）"
-        codesign --force --deep --no-strict --options=runtime --timestamp \
-            --entitlements "$ENTITLEMENTS" \
-            --sign "$APP_SIGN_IDENTITY" \
-            --keychain "$KEYCHAIN_PATH" \
-            "$APP_PATH"
-    fi
+        "$APP_PATH"
 
     ok "签名完成"
 fi
