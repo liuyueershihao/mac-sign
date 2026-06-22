@@ -150,11 +150,60 @@ if [[ -z "$APP_SIGN_IDENTITY" ]]; then
     fi
 fi
 
-# ---------- 2. 解锁钥匙串 ----------
-info "解锁钥匙串..."
-security unlock-keychain -p "" "$KEYCHAIN_PATH" 2>/dev/null || \
-    security unlock-keychain "$KEYCHAIN_PATH" 2>/dev/null || \
-    warn "钥匙串可能仍处于锁定状态，签名失败请手动解锁"
+# ---------- 2. 解锁钥匙串 + 永久授权 Apple 工具 ----------
+# 探测 codesign 是否能无感访问该钥匙串（避免创建临时 .app 干扰）
+ensure_keychain_acl() {
+    local kc="$1"
+    [[ -f "$kc" ]] || return 0
+    # 用 codesign 对空文件试签，能跑通 + 不返回 "user interaction" 即为有权限
+    local probe
+    probe="$(mktemp -t kcprobe.XXXXXX)"
+    : >"$probe"
+    local out
+    out="$(codesign --force --sign - "$probe" 2>&1)"
+    rm -f "$probe"
+    if echo "$out" | grep -q "user interaction is not allowed"; then
+        return 1
+    fi
+    return 0
+}
+
+info "检查钥匙串 ACL 授权状态..."
+LIST_LOCKED=()
+for kc in "$HOME/Library/Keychains/login.keychain-db" \
+          "$HOME/Library/Keychains/build.keychain-db"; do
+    [[ -f "$kc" ]] || continue
+    security unlock-keychain -p "" "$kc" 2>/dev/null || \
+        security unlock-keychain "$kc" 2>/dev/null || true
+    if ! ensure_keychain_acl "$kc"; then
+        LIST_LOCKED+=("$kc")
+    fi
+done
+
+if [[ ${#LIST_LOCKED[@]} -gt 0 ]]; then
+    err "下列钥匙串需要 codesign 永久授权（每次签名的弹窗根因）："
+    for kc in "${LIST_LOCKED[@]}"; do
+        err "  - $kc"
+    done
+    echo
+    echo "  一次性修复（输入对应钥匙串的密码，下次起永久免密）："
+    for kc in "${LIST_LOCKED[@]}"; do
+        echo "    security set-key-partition-list \\"
+        echo "        -S apple-tool:,apple:,codesign:,codesign-create:,security: \\"
+        echo "        -k \"你的钥匙串密码\" \"$kc\""
+    done
+    echo
+    echo "  也可以现在让脚本为你自动设置（会交互要求输入密码）："
+    for kc in "${LIST_LOCKED[@]}"; do
+        read -rsp "  密码 for $(basename "$kc"): " kcpass && echo
+        security set-key-partition-list \
+            -S apple-tool:,apple:,codesign:,codesign-create:,security: \
+            -s -k "$kcpass" "$kc" 2>/dev/null
+        unset kcpass
+        # 再尝试解锁
+        security unlock-keychain "$kc" 2>/dev/null || true
+    done
+fi
 
 # ---------- 3. 签名 ----------
 sign_one() {

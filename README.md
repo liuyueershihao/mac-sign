@@ -6,7 +6,7 @@
 
 | 脚本 | 职责 | 是否会修改 `.app` |
 |---|---|---|
-| `sign.sh` | 导入 `.p12`、签名、校验、提交公证、staple | ✅ |
+| `sign.sh` | 导入 `.p12`、钥匙串 ACL 授权、签名、校验、提交公证、staple | ✅ |
 | `build-dmg.sh` | 给已签名 `.app` 生成带 Finder 拖拽布局的 dmg | ❌（只读） |
 | `entitlements.mac.plist` | Electron hardened-runtime entitlements（共用） | — |
 
@@ -59,6 +59,7 @@
 --identity <string>    直接指定签名身份（覆盖自动检测）
 --skip-notarize        只签名，不公证
 --notarize-only        只对当前已签名的 .app 补公证
+--test-mode            测试模式：跳过 Developer ID 身份校验，允许 ad-hoc 签名演练
 --dry-run              只打印计划，不执行
 ```
 
@@ -90,7 +91,72 @@ export APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
 ./scripts/build-dmg.sh            # 打 dmg
 ```
 
+## 钥匙串 ACL 授权（避免每次弹窗）
+
+macOS 的钥匙串对 codesign / xcodebuild 等工具默认要求密码授权。第一次执行 `sign.sh` 时脚本会**自动探测**，如果发现某个钥匙串需要授权：
+
+1. 列出需要授权的钥匙串（`login` / `build`）
+2. 提示运行 `security set-key-partition-list` 一次性命令
+3. 询问是否现在输入密码自动设置（设置后永久免密）
+
+### 手动一次设置（无需脚本）
+
+```bash
+security set-key-partition-list \
+    -S apple-tool:,apple:,codesign:,codesign-create:,security: \
+    -s \
+    -k "你的登录密码" \
+    ~/Library/Keychains/login.keychain-db
+
+# 如果 Developer ID 在 build 钥匙串（Xcode 默认行为）
+security set-key-partition-list \
+    -S apple-tool:,apple:,codesign:,codesign-create:,security: \
+    -s \
+    -k "build 钥匙串密码" \
+    ~/Library/Keychains/build.keychain-db
+```
+
+执行后 codesign / xcodebuild 永久免密访问对应钥匙串。
+
+> 注意：脚本导入 `.p12` 时已带 `-T /usr/bin/codesign -T /usr/bin/security` ACL，
+> 通常只要 .p12 是通过 `--p12` 参数导入，codesign 不会再弹窗。
+> 弹窗通常发生在**手动**导入或从其他 Mac 迁过来的证书上。
+
+## 多机协作（.p12 在另一台 Mac）
+
+敏感证书不方便导出？推荐在**有证书的 Mac** 上跑全流程，不导出证书。
+
+在有证书的机器上：
+
+```bash
+git clone https://github.com/liuyueershihao/mac-sign.git
+cd mac-sign
+./sign.sh --app /path/to/YourApp.app \
+    --p12 <本地.p12> --p12-pass 'xxx' \
+    --authkey <本地.p8> --key-id xxx --issuer xxx
+./build-dmg.sh /path/to/YourApp.app
+```
+
+如果必须导出 .p12 到其他机器：
+
+```bash
+# 在源 Mac 上导出（设一个新密码）
+security export -k ~/Library/Keychains/login.keychain-db \
+    -t identities -f pkcs12 \
+    -o ~/Desktop/DeveloperID.p12 \
+    -P "传输密码"
+
+# 传到目标机器后用 --p12 导入
+./sign.sh --p12 ~/Downloads/DeveloperID.p12 --p12-pass '传输密码' ...
+```
+
 ## 常见问题
+
+**Q: 弹窗 "codesign 想要使用 build 钥匙串"**
+A: Developer ID 证书在 build 钥匙串但 codesign 没 ACL 授权。运行上面的 `set-key-partition-list` 命令一次。
+
+**Q: 本机没有任何 Developer ID Application 身份**
+A: `.p12` 没导入成功。运行 `security find-identity -p codesigning -v` 检查；若有 `Apple Development:` 身份但没有 `Developer ID Application:`，说明你导错了证书类型（需要 Distribution 类型的 .p12，不是 Development）。
 
 **Q: AppleScript 控制 Finder 失败 / dmg 没自定义布局**
 A: 去 **系统设置 → 隐私与安全性 → 自动化** 给当前终端授权 Finder。授权失败时 dmg 仍能生成，只是不带布局。
@@ -106,3 +172,6 @@ A: 没成功 staple。重跑 `xcrun stapler staple "YourApp.app"`。
 
 **Q: 报错 `code object is not signed at all`**
 A: 签名顺序错。本脚本已按"嵌套从内到外"顺序签名，正常使用不会出现。
+
+**Q: `verify` 失败但脚本仍报"签名完成"**
+A: 旧版 Electron 框架结构不规范（`bundle format is ambiguous`），脚本自动用 `--no-strict` 回退。Apple notarytool 对这种结构能接受。
