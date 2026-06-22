@@ -65,7 +65,14 @@ APP_NAME="$(basename "$APP_PATH" .app)"
 need() { command -v "$1" >/dev/null 2>&1 || { err "缺少依赖: $1"; exit 1; }; }
 for c in hdiutil osascript sips ditto; do need "$c"; done
 
-[[ -d "$APP_PATH" ]] || { err "找不到 App: $APP_PATH"; exit 1; }
+[[ -d "$APP_PATH" ]] || {
+    err "找不到 App: $APP_PATH"
+    echo
+    echo "  当前位置: $(pwd)"
+    echo "  当前目录的 .app:"
+    find . -maxdepth 2 -name "*.app" -type d 2>/dev/null | head -10 | sed 's/^/    /'
+    exit 1
+}
 mkdir -p "$(dirname "$OUTPUT_DMG")"
 
 # ---------- 可选背景图 ----------

@@ -83,7 +83,18 @@ APP_NAME="$(basename "$APP_PATH" .app)"
 need() { command -v "$1" >/dev/null 2>&1 || { err "缺少依赖: $1"; exit 1; }; }
 for c in codesign xcrun security ditto; do need "$c"; done
 
-[[ -d "$APP_PATH" ]]     || { err "找不到 App: $APP_PATH"; exit 1; }
+[[ -d "$APP_PATH" ]]     || {
+    err "找不到 App: $APP_PATH"
+    echo
+    echo "  当前位置: $(pwd)"
+    echo "  当前目录的 .app:"
+    find . -maxdepth 2 -name "*.app" -type d 2>/dev/null | head -10 | sed 's/^/    /'
+    echo
+    echo "  💡 带空格的路径需要加引号或转义:"
+    echo "     --app \"./WonderHub Class.app\""
+    echo "     --app ./WonderHub\\ Class.app"
+    exit 1
+}
 [[ -f "$ENTITLEMENTS" ]] || { err "找不到 entitlements: $ENTITLEMENTS"; exit 1; }
 
 # PkgInfo 自动修复
