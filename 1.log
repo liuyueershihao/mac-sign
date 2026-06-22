@@ -1,0 +1,343 @@
+>> 提交公证（1-5 分钟）...
+{"status":"Invalid","message":"Processing complete","id":"37b26b04-3815-4e2c-8e24-28321d0af234"}
+✗  公证失败: Invalid
+Successfully downloaded submission log
+  id: 37b26b04-3815-4e2c-8e24-28321d0af234
+  location: /Users/desktopone/Desktop/mac-sign/dist/Wonderhub Class.notarylog.json
+desktopone@desktopOnedeMacBook-Air mac-sign % cat /Users/desktopone/Desktop/mac-sign/dist/Wonderhub Class.notarylog.json
+cat: /Users/desktopone/Desktop/mac-sign/dist/Wonderhub: No such file or directory
+cat: Class.notarylog.json: No such file or directory
+desktopone@desktopOnedeMacBook-Air mac-sign % cat "/Users/desktopone/Desktop/mac-sign/dist/Wonderhub Class.notarylog.json"
+{
+  "logFormatVersion": 1,
+  "jobId": "37b26b04-3815-4e2c-8e24-28321d0af234",
+  "status": "Invalid",
+  "statusSummary": "Archive contains critical validation errors",
+  "statusCode": 4000,
+  "archiveFilename": "Wonderhub Class.zip",
+  "uploadDate": "2026-06-22T05:57:21.313Z",
+  "sha256": "0ad83600f40eff80090560bf53d093d807e60b6ac1adbe08ed6469edb477466c",
+  "ticketContents": null,
+  "issues": [
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/MacOS/WonderHub Class",
+      "message": "The signature of the binary is invalid.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087735",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/MacOS/WonderHub Class",
+      "message": "The signature of the binary is invalid.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087735",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+      "message": "The signature of the binary is invalid.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087735",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC",
+      "message": "The signature of the binary is invalid.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087735",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt",
+      "message": "The executable does not have the hardened runtime enabled.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087724",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt",
+      "message": "The binary is not signed with a valid Developer ID certificate.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt",
+      "message": "The executable does not have the hardened runtime enabled.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087724",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel",
+      "message": "The signature of the binary is invalid.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087735",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "message": "The executable does not have the hardened runtime enabled.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087724",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "message": "The binary is not signed with a valid Developer ID certificate.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt",
+      "message": "The executable does not have the hardened runtime enabled.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087724",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/Current/Resources/ShipIt",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/Current/Resources/ShipIt",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/Current/Resources/ShipIt",
+      "message": "The executable does not have the hardened runtime enabled.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087724",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/Current/Resources/ShipIt",
+      "message": "The binary is not signed with a valid Developer ID certificate.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/Current/Resources/ShipIt",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Versions/Current/Resources/ShipIt",
+      "message": "The executable does not have the hardened runtime enabled.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087724",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Mantle.framework/Versions/A/Mantle",
+      "message": "The binary is not signed.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087721",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Mantle.framework/Versions/A/Mantle",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "x86_64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Mantle.framework/Versions/A/Mantle",
+      "message": "The signature of the binary is invalid.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087735",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "error",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Mantle.framework/Versions/A/Mantle",
+      "message": "The signature does not include a secure timestamp.",
+      "docUrl": "https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues#3087733",
+      "architecture": "arm64"
+    },
+    {
+      "severity": "warning",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Electron Framework.framework/Electron Framework",
+      "message": "Unable to notarize Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Electron Framework.framework/Electron Framework",
+      "docUrl": null,
+      "architecture": null
+    },
+    {
+      "severity": "warning",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/ReactiveObjC.framework/ReactiveObjC",
+      "message": "Unable to notarize Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/ReactiveObjC.framework/ReactiveObjC",
+      "docUrl": null,
+      "architecture": null
+    },
+    {
+      "severity": "warning",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Squirrel",
+      "message": "Unable to notarize Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Squirrel.framework/Squirrel",
+      "docUrl": null,
+      "architecture": null
+    },
+    {
+      "severity": "warning",
+      "code": null,
+      "path": "Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Mantle.framework/Mantle",
+      "message": "Unable to notarize Wonderhub Class.zip/WonderHub Class.app/Contents/Frameworks/Mantle.framework/Mantle",
+      "docUrl": null,
+      "architecture": null
+    }
+  ]
+}%              

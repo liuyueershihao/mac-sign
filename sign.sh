@@ -2,6 +2,10 @@
 # ============================================================================
 # WonderHub Class - 签名 + 公证脚本（独立）
 # ============================================================================
+# 强制 bash 执行（zsh 跑会 auto re-exec）
+if [[ -z "$BASH_VERSION" ]]; then
+    exec /usr/bin/env bash "$0" "$@"
+fi
 # 用法:
 #   ./scripts/sign.sh [path/to/WonderHub Class.app] \
 #       --p12   /path/to/DeveloperID.p12 \
