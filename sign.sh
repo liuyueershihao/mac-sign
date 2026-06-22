@@ -333,53 +333,84 @@ if [[ $SKIP_NOTARIZE -eq 0 ]]; then
     OUT_DIR="$(dirname "$APP_PATH")/dist"
     mkdir -p "$OUT_DIR"
     ZIP_PATH="$OUT_DIR/$APP_NAME.zip"
-    info "打包 zip 用于公证..."
-    ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
-    info "提交公证（1-5 分钟，可能因网络超时需要重试）..."
+    # 1) 打包 zip，显示压缩进度
+    APP_SIZE_BYTES=$(du -sb "$APP_PATH" | awk '{print $1}')
+    APP_SIZE_HR=$(du -sh "$APP_PATH" | awk '{print $1}')
+    info "打包 zip（源: $APP_SIZE_HR）..."
+    if command -v pv >/dev/null 2>&1; then
+        tar cf - -C "$(dirname "$APP_PATH")" "$(basename "$APP_PATH")" 2>/dev/null \
+            | pv -s "$APP_SIZE_BYTES" -N "  压缩进度" \
+            | ditto -c -k --sequesterRsrc - "$ZIP_PATH"
+    else
+        ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+    fi
+    ZIP_SIZE_HR=$(du -sh "$ZIP_PATH" | awk '{print $1}')
+    ok "zip 完成: $ZIP_SIZE_HR"
+
+    # 2) 分两阶段：上传（--no-wait） + 轮询处理进度
+    info "提交公证（上传 + 等待处理，会显示状态）..."
     NOTARY_JSON="$OUT_DIR/$APP_NAME.notary.json"
     NOTARY_RETRY_MAX=${NOTARY_RETRY_MAX:-5}
     NOTARY_RETRY_DELAY=${NOTARY_RETRY_DELAY:-10}
     NOTARY_STATUS=""
+    SUBMISSION_ID=""
 
-    for attempt in $(seq 1 $NOTARY_RETRY_MAX); do
-        info "  公证尝试 $attempt/$NOTARY_RETRY_MAX..."
-        if xcrun notarytool submit "$ZIP_PATH" \
+    upload_submission() {
+        xcrun notarytool submit "$ZIP_PATH" \
             --key "$AC_API_KEY_PATH" \
             --key-id "$AC_API_KEY_ID" \
             --issuer "$AC_API_ISSUER_ID" \
-            --wait \
-            --output-format json \
-            >"$NOTARY_JSON" 2> "$NOTARY_JSON.err"; then
-            NOTARY_STATUS=$(python3 -c "import json;print(json.load(open('$NOTARY_JSON')).get('status','Unknown'))" 2>/dev/null || echo "Unknown")
-            if [[ "$NOTARY_STATUS" == "Accepted" ]]; then
-                break
+            --no-wait \
+            --output-format json
+    }
+
+    poll_status() {
+        local id="$1"
+        local out="$2"
+        local SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+        local i=0
+        local start_ts
+        start_ts=$(date +%s)
+        while true; do
+            local info_json status elapsed
+            info_json=$(xcrun notarytool info "$id" \
+                --key "$AC_API_KEY_PATH" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" 2>/dev/null)
+            status=$(echo "$info_json" | python3 -c "import json,sys;print(json.load(sys.stdin).get('status','Unknown'))" 2>/dev/null || echo "Unknown")
+            elapsed=$(( $(date +%s) - start_ts ))
+            printf "\r  ${SPIN:$((i % 10)):1} 等待 Apple 处理... 状态: %-10s 已等待: %ds  " "$status" "$elapsed"
+            i=$((i + 1))
+            if [[ "$status" == "Accepted" || "$status" == "Invalid" || "$status" == "Rejected" ]]; then
+                echo
+                echo "$info_json" > "$out"
+                return 0
             fi
-            # Invalid 状态不需要重试（签名问题，重试无用）
-            warn "  状态: $NOTARY_STATUS"
-            if grep -q -E "deadlineExceeded|abortedUpload|network|connection" "$NOTARY_JSON.err" 2>/dev/null; then
-                warn "  检测到网络错误，${NOTARY_RETRY_DELAY}s 后重试"
-                sleep "$NOTARY_RETRY_DELAY"
-            else
-                # 签名问题直接跳出
-                break
-            fi
-        else
-            # 命令本身失败
-            if grep -q -E "deadlineExceeded|abortedUpload|network|connection|timeout" "$NOTARY_JSON.err" 2>/dev/null; then
-                warn "  上传超时，${NOTARY_RETRY_DELAY}s 后重试"
-                sleep "$NOTARY_RETRY_DELAY"
-            else
-                cat "$NOTARY_JSON.err"
-                err "notarytool submit 执行失败"
+            sleep 5
+        done
+    }
+
+    for attempt in $(seq 1 $NOTARY_RETRY_MAX); do
+        info "  [尝试 $attempt/$NOTARY_RETRY_MAX] 上传 zip 到 Apple S3..."
+        local_err=$(mktemp -t notaryerr.XXXXXX)
+        if submit_out=$(upload_submission 2>"$local_err"); then
+            SUBMISSION_ID=$(echo "$submit_out" | python3 -c "import json,sys;print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+            if [[ -n "$SUBMISSION_ID" ]]; then
+                ok "  上传完成 ✓ submission id: $SUBMISSION_ID"
+                poll_status "$SUBMISSION_ID" "$NOTARY_JSON"
+                NOTARY_STATUS=$(python3 -c "import json;print(json.load(open('$NOTARY_JSON')).get('status','Unknown'))" 2>/dev/null || echo "Unknown")
                 break
             fi
         fi
+        if grep -q -E "deadlineExceeded|abortedUpload|network|connection|timeout" "$local_err" 2>/dev/null; then
+            warn "  上传超时/网络错误，${NOTARY_RETRY_DELAY}s 后重试"
+            sleep "$NOTARY_RETRY_DELAY"
+        else
+            cat "$local_err" >&2
+            err "  submit 失败（非网络错误）"
+            break
+        fi
+        rm -f "$local_err"
     done
-    rm -f "$NOTARY_JSON.err"
-
-    cat "$NOTARY_JSON"
-    SUBMISSION_ID=$(python3 -c "import json;print(json.load(open('$NOTARY_JSON')).get('id',''))" 2>/dev/null || echo "")
 
     if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
         err "公证失败: $NOTARY_STATUS"
@@ -388,9 +419,6 @@ if [[ $SKIP_NOTARIZE -eq 0 ]]; then
                 --key "$AC_API_KEY_PATH" --key-id "$AC_API_KEY_ID" --issuer "$AC_API_ISSUER_ID" \
                 "$OUT_DIR/$APP_NAME.notarylog.json"
         echo "查看日志: $OUT_DIR/$APP_NAME.notarylog.json"
-        echo
-        echo "  💡 如果是网络超时（deadlineExceeded/abortedUpload），可手动重试："
-        echo "     xcrun notarytool submit '$ZIP_PATH' --key '$AC_API_KEY_PATH' --key-id '$AC_API_KEY_ID' --issuer '$AC_API_ISSUER_ID' --wait"
         exit 1
     fi
     ok "公证 Accepted ✅"
