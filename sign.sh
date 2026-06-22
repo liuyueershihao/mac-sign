@@ -325,39 +325,35 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
             "$APP_PATH"
     fi
 
-    info "校验签名（1.4G app 可能需要 1-3 分钟，会实时输出进度）..."
-    # 实时显示 codesign 输出，捕获 RC
+    info "校验签名（1.4G app 可能需要 1-3 分钟，逐行显示）..."
+    # 不用 process substitution（bash 3.2 不支持），用临时文件
     verify_out=$(mktemp -t verify.XXXXXX)
-    ( codesign --verify --deep --verbose=2 "$APP_PATH" >"$verify_out" 2>&1; echo $? >"$verify_out.rc" ) &
-    verify_pid=$!
-    # 进度 spinner
-    SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    i=0
-    last_count=0
-    while kill -0 "$verify_pid" 2>/dev/null; do
-        sleep 1
-        current=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null || echo 0)
-        printf "\r  ${SPIN:$((i % 10)):1} 已验证 %d 个组件...  " "$current"
-        i=$((i + 1))
-    done
-    echo
-    verify_rc=$(cat "$verify_out.rc")
-    verify_text=$(cat "$verify_out")
-    rm -f "$verify_out" "$verify_out.rc"
+    codesign --verify --deep --verbose=2 "$APP_PATH" >"$verify_out" 2>&1
+    verify_rc=$?
 
-    validated_count=$(echo "$verify_text" | grep -c "^\-\-validated:" || true)
-    prepared_count=$(echo "$verify_text" | grep -c "^\-\-prepared:" || true)
+    validated_count=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null | head -1)
+    validated_count=${validated_count:-0}
+    is_ambiguous=$(grep -c "ambiguous (could be app or framework)" "$verify_out" 2>/dev/null | head -1)
+    is_ambiguous=${is_ambiguous:-0}
+
+    # 逐行打印 codesign 输出
+    while IFS= read -r line; do
+        case "$line" in
+            --validated:*) printf "  ✓ %s\n" "$line" ;;
+            --prepared:*)  printf "  · %s\n" "$line" ;;
+            *)             [[ -n "$line" ]] && printf "    %s\n" "$line" ;;
+        esac
+    done <"$verify_out"
+    rm -f "$verify_out"
+
     if [[ $verify_rc -eq 0 ]]; then
         ok "签名校验通过（$validated_count 个组件已验证）"
     else
-        # --no-strict 模式下 verify 仍可能报 ambiguous，这是 Electron Framework 已知问题
-        if echo "$verify_text" | grep -q "ambiguous (could be app or framework)"; then
+        if [[ $is_ambiguous -gt 0 ]]; then
             warn "  ⚠️  verify 报告 ambiguous（Electron Framework 顶层结构问题，与脚本无关）"
             warn "  ℹ️  $validated_count 个组件签成功，Apple notarytool 服务端会接受"
-            warn "  ℹ️  仅影响 codesign --verify --strict，本地 strict 模式才会拒绝"
         else
-            warn "verify 返回非 0（rc=$verify_rc），请检查："
-            echo "$verify_text" | head -10
+            warn "verify 返回非 0（rc=$verify_rc）"
         fi
     fi
     ok "签名完成"
