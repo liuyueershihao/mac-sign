@@ -301,11 +301,18 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         done < <(find "$FW" -maxdepth 2 -name "*.framework" 2>/dev/null | sort)
     fi
 
-    # 4) 主二进制
+    # 4) 主二进制（用 entitlements 签，确保 universal binary 正确签 + timestamp）
     MAIN="$APP_PATH/Contents/MacOS/$APP_NAME"
-    [[ -x "$MAIN" ]] && { echo "   signing main binary: $MAIN"; codesign --force --options=runtime --timestamp --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$MAIN"; }
+    if [[ -x "$MAIN" ]]; then
+        echo "   signing main binary: $MAIN"
+        codesign --force --options=runtime --timestamp \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "$APP_SIGN_IDENTITY" \
+            --keychain "$KEYCHAIN_PATH" \
+            "$MAIN"
+    fi
 
-    # 5) 主 App（不带 --deep，避免覆盖已经手动签好的 framework 内部）
+    # 5) 主 App（不带 --deep，避免覆盖已签好的 framework 内部）
     info "签名主 App: $APP_PATH"
     codesign --force --options=runtime --timestamp \
         --entitlements "$ENTITLEMENTS" \
