@@ -282,10 +282,17 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing macho: $f"
-            codesign --force --options=runtime --timestamp \
+            if ! codesign --force --options=runtime --timestamp \
                 --sign "$APP_SIGN_IDENTITY" \
                 --keychain "$KEYCHAIN_PATH" \
-                "$f" || warn "   macho 签名失败（继续）: $f"
+                "$f" 2>/dev/null; then
+                # 失败时用 --no-strict 重试（兼容 Electron Framework 内部结构）
+                warn "   retry with --no-strict: $f"
+                codesign --force --no-strict --options=runtime --timestamp \
+                    --sign "$APP_SIGN_IDENTITY" \
+                    --keychain "$KEYCHAIN_PATH" \
+                    "$f" || warn "   macho 签名最终失败: $f"
+            fi
         done < <(awk -F/ '{print NF, $0}' "$MACHO_LIST" | sort -rn | cut -d' ' -f2-)
         rm -f "$MACHO_LIST"
 
