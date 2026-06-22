@@ -119,12 +119,19 @@ hdiutil create -ov -format UDRW \
     -fs HFS+ \
     "$STAGE.rw.dmg" >/dev/null
 
-# ---------- AppleScript 设置布局 ----------
-info "设置 Finder 拖拽布局..."
-AS="$(mktemp -t dmglayout.XXXXXX.applescript)"
-cat >"$AS" <<EOF
+# ---------- 挂载 dmg + AppleScript 设置布局 ----------
+info "挂载读写 dmg 以设置 Finder 布局..."
+MOUNT_OUT="$(hdiutil attach -nobrowse -readwrite -noverify -noautofsck "$STAGE.rw.dmg" 2>&1)"
+MOUNT_PATH="$(echo "$MOUNT_OUT" | awk -F'\t' '/\/Volumes\//{gsub(/^ +| +$/,"",$3); print $3; exit}')"
+if [[ -z "$MOUNT_PATH" ]]; then
+    warn "无法挂载读写 dmg，跳过布局（dmg 仍会生成但不带自定义布局）"
+    warn "hdiutil 输出: $MOUNT_OUT"
+else
+    info "已挂载: $MOUNT_PATH"
+    AS="$(mktemp -t dmglayout.XXXXXX.applescript)"
+    cat >"$AS" <<EOF
 on run argv
-    set stagePath to item 1 of argv
+    set mountPath to item 1 of argv
     set winW      to (item 2 of argv) as integer
     set winH      to (item 3 of argv) as integer
     set posAppX   to (item 4 of argv) as integer
@@ -135,7 +142,7 @@ on run argv
     set iconSize  to (item 9 of argv) as integer
 
     tell application "Finder"
-        tell disk (stagePath as POSIX file)
+        tell disk (mountPath as POSIX file)
             open
             delay 1
             set current view of container window to icon view
@@ -160,13 +167,16 @@ on run argv
 end run
 EOF
 
-osascript "$AS" \
-    "$STAGE" "$WIN_W" "$WIN_H" \
-    "$POS_APP_X" "$POS_APP_Y" "$POS_APPS_X" "$POS_APPS_Y" \
-    "$BG_FOR_AS" "$ICON_SIZE" \
-    || warn "AppleScript 布局失败（不影响 dmg 生成），请到 系统设置→隐私与安全性→自动化 授权"
+    osascript "$AS" \
+        "$MOUNT_PATH" "$WIN_W" "$WIN_H" \
+        "$POS_APP_X" "$POS_APP_Y" "$POS_APPS_X" "$POS_APPS_Y" \
+        "$BG_FOR_AS" "$ICON_SIZE" \
+        || warn "AppleScript 布局失败（不影响 dmg 生成），请到 系统设置→隐私与安全性→自动化 授权"
 
-rm -f "$AS"
+    sync
+    hdiutil detach "$MOUNT_PATH" >/dev/null 2>&1 || warn "卸载 dmg 失败"
+    rm -f "$AS"
+fi
 
 # ---------- 转压缩只读 dmg ----------
 info "压缩为 UDZO..."
