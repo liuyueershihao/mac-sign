@@ -325,11 +325,31 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
             "$APP_PATH"
     fi
 
-    info "校验签名（1.4G app 可能需要 1-3 分钟，逐行显示）..."
-    # 不用 process substitution（bash 3.2 不支持），用临时文件
+    info "校验签名（1.4G app 可能需要 1-5 分钟）..."
+    # codesign 写到文件/管道是块缓冲，必须给伪 TTY 才实时输出
+    # macOS script -q 命令能创建伪 TTY 强制行缓冲
+    # 同时后台跑 codesign + spinner 显示进度
     verify_out=$(mktemp -t verify.XXXXXX)
-    codesign --verify --deep --verbose=2 "$APP_PATH" >"$verify_out" 2>&1
-    verify_rc=$?
+    ( script -q "$verify_out" codesign --verify --deep --verbose=2 "$APP_PATH" >/dev/null 2>&1; echo $? >"$verify_out.rc" ) &
+    bg_pid=$!
+    SPIN='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    i=0
+    elapsed=0
+    while kill -0 "$bg_pid" 2>/dev/null; do
+        sleep 2
+        elapsed=$((elapsed + 2))
+        validated=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null | head -1)
+        validated=${validated:-0}
+        printf "\r  ${SPIN:$((i % 10)):1} codesign 校验中... 已等待 ${elapsed}s  已验证 ${validated} 个组件  "
+        i=$((i + 1))
+    done
+    echo
+    wait "$bg_pid"
+    verify_rc=$(cat "$verify_out.rc" 2>/dev/null || echo 1)
+    rm -f "$verify_out.rc"
+    # script 输出有 \r 字符，清理
+    tr '\r' '\n' < "$verify_out" > "${verify_out}.clean"
+    mv "${verify_out}.clean" "$verify_out"
 
     validated_count=$(grep -c "^\-\-validated:" "$verify_out" 2>/dev/null | head -1)
     validated_count=${validated_count:-0}
