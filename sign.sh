@@ -308,39 +308,14 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         done < <(find "$FW" -maxdepth 2 -name "*.framework" 2>/dev/null | sort)
     fi
 
-    # 4) 主二进制（用 entitlements 签，确保 universal binary 正确签 + timestamp）
-    MAIN="$APP_PATH/Contents/MacOS/$APP_NAME"
-    if [[ -x "$MAIN" ]]; then
-        echo "   signing main binary: $MAIN"
-        # --all-architectures 显式签 universal binary 的所有 slice
-        if ! codesign --force --all-architectures --options=runtime --timestamp \
-            --entitlements "$ENTITLEMENTS" \
-            --sign "$APP_SIGN_IDENTITY" \
-            --keychain "$KEYCHAIN_PATH" \
-            "$MAIN" 2>/dev/null; then
-            warn "   main binary --all-architectures 失败，尝试不带"
-            codesign --force --options=runtime --timestamp \
-                --entitlements "$ENTITLEMENTS" \
-                --sign "$APP_SIGN_IDENTITY" \
-                --keychain "$KEYCHAIN_PATH" \
-                "$MAIN"
-        fi
-    fi
-
-    # 5) 主 App（只签顶层，不重新签 nested；--no-strict 容忍 Electron 框架 ambiguous）
-    info "签名主 App: $APP_PATH"
-    if ! codesign --force --options=runtime --timestamp \
+    # 4) 主二进制 + 主 App：合二为一，用 --deep --force --no-strict 一次性签
+    # 避免手动分步签产生的 universal binary slice 签名不一致问题
+    info "签名主 App (含 universal binary + entitlements): $APP_PATH"
+    codesign --force --deep --no-strict --options=runtime --timestamp \
         --entitlements "$ENTITLEMENTS" \
         --sign "$APP_SIGN_IDENTITY" \
         --keychain "$KEYCHAIN_PATH" \
-        "$APP_PATH" 2>/dev/null; then
-        warn "主 App 签失败，用 --no-strict 重试（兼容 Electron Framework 已知 ambiguous 问题）"
-        codesign --force --no-strict --options=runtime --timestamp \
-            --entitlements "$ENTITLEMENTS" \
-            --sign "$APP_SIGN_IDENTITY" \
-            --keychain "$KEYCHAIN_PATH" \
-            "$APP_PATH"
-    fi
+        "$APP_PATH"
 
     ok "签名完成"
 fi
