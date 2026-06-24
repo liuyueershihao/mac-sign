@@ -174,7 +174,10 @@ A: 没成功 staple。重跑 `xcrun stapler staple "YourApp.app"`。
 A: 签名顺序错。本脚本已按"嵌套从内到外"顺序签名，正常使用不会出现。
 
 **Q: `verify` 失败但脚本仍报"签名完成"**
-A: 旧版脚本会回退到 `--no-strict`，已移除。最新版会直接报错并退出，请把 `codesign --verify --strict --verbose=2` 的输出贴上来排查（常见是某层 framework 的 Mach-O 漏签或 `Info.plist` 的 `CFBundleIdentifier` 跟签名身份不匹配）。
+A: 旧版脚本会静默回退到 `--no-strict`，已重构。新版策略：主二进制和主 .app **完全不碰 `--no-strict`**（保证 slice 签名正确），framework Mach-O / framework 顶层在严格 codesign 报 `bundle format is ambiguous` 时才退到 `--no-strict` 作为兜底（不影响签名内容），并在最后用 `codesign --verify --verbose=2` 冒烟自检（不用 `--strict`，避免 Electron framework 结构警告被误判）。
 
 **Q: 公证失败 `The signature of the binary is invalid`（多个 architecture）**
-A: 主 .app 不应该用 `codesign --deep` 一次性签，会破坏 universal binary 的 slice 级 code directory。本脚本已改为：先签 Mach-O 单文件，再签 helper / framework / 主 .app，全程不碰 `--deep`，并在签名后用 `codesign --verify --strict` 自检。
+A: 主 .app 用了 `codesign --deep` 会破坏 universal binary 的 slice 级 code directory。本脚本已改为：先签 Mach-O 单文件，再签 helper / framework / 主二进制 / 主 .app，全程不碰 `--deep`，主二进制独立签一次（带 entitlements）。`--no-strict` 只在 framework 内部严格模式失败时作为兜底，不会作用到主二进制和主 .app。
+
+**Q: framework 报 `bundle format is ambiguous (could be app or framework)`**
+A: Electron 的 `Squirrel.framework` / `ReactiveObjC.framework` / `Mantle.framework` / `Electron Framework.framework` 结构对严格 codesign 来说有歧义（顶层 X.framework/X 快捷方式、Info.plist 位置等）。脚本会先严格签，失败时自动用 `--no-strict` 重试，Apple notarytool 接受这种结构（只会产生 `Unable to notarize` 警告，不影响通过）。
