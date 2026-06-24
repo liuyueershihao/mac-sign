@@ -57,6 +57,7 @@
 --key-id <id>          AuthKey Key ID（脚本可从文件名自动推断）
 --issuer <uuid>        App Store Connect Issuer ID
 --identity <string>    直接指定签名身份（覆盖自动检测）
+--timestamp-url <url>  自定义时间戳服务器 URL（默认走 Apple 的 timestamp.apple.com）
 --skip-notarize        只签名，不公证
 --notarize-only        只对当前已签名的 .app 补公证
 --test-mode            测试模式：跳过 Developer ID 身份校验，允许 ad-hoc 签名演练
@@ -184,3 +185,22 @@ A: Electron 的 `Squirrel.framework` / `ReactiveObjC.framework` / `Mantle.framew
 
 **Q: 公证通过，但打开 .app 立刻闪退，crashlog 是 `EXC_BREAKPOINT (SIGTRAP)` / `brk 0`，栈停在 `ElectronMain + 200` / `v8::Context::FromSnapshot`**
 A: V8 启动时要把 `v8_context_snapshot.bin` 加载进 isolate，hardened runtime 模式下需要 `com.apple.security.cs.allow-dyld-environment-variables`，缺了 V8 的 DCHECK 触发 `__builtin_trap()` 直接 SIGTRAP 杀进程。本脚本在签完后会读回 entitlements 校验这 4 条（`allow-jit` / `allow-unsigned-executable-memory` / `allow-dyld-environment-variables` / `disable-library-validation`），少哪条都会在签名阶段立刻报错，不会跑到公证完才发现闪退。如果校验被跳过/绕过，记得检查 `entitlements.mac.plist` 里有 `cs.allow-dyld-environment-variables`（Electron 官方文档明确列为必需）。
+
+**Q: 签每个组件都报 `The timestamp service is not available`，所有 sign 失败**
+A: `codesign --timestamp` 默认连 Apple 时间戳服务器 `http://timestamp.apple.com/ts01`，当前机器连不上它（GFW / 内网限制 / Apple TSA 临时故障都可能）。脚本会立刻检测到并提示用 `--timestamp-url` 切到其他 TSA：
+
+```bash
+./sign.sh ... --timestamp-url http://timestamp.digicert.com
+# 或
+./sign.sh ... --timestamp-url http://tsa.swisssign.net
+# 或环境变量
+TIMESTAMP_URL=http://timestamp.digicert.com ./sign.sh ...
+```
+
+可用的公共 TSA（RFC 3161）：
+- `http://timestamp.digicert.com` (DigiCert)
+- `http://tsa.swisssign.net` (SwissSign)
+- `http://timestamp.entrust.net/TSS/RFC3161sha2TS` (Entrust)
+- `http://timestamp.sectigo.com` (Sectigo)
+
+公司内网的话可以自建 OpenSSL TSA 然后指向 `http://your-tsa.local`。Apple notarytool 接受任何 RFC 3161 合规 TSA 签出来的时间戳。

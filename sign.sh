@@ -17,6 +17,9 @@ AC_API_KEY_PATH="${AC_API_KEY_PATH:-}"
 AC_API_KEY_ID="${AC_API_KEY_ID:-}"
 AC_API_ISSUER_ID="${AC_API_ISSUER_ID:-}"
 APP_SIGN_IDENTITY="${APP_SIGN_IDENTITY:-}"
+# 时间戳服务器 URL：留空走 codesign 默认（http://timestamp.apple.com/ts01），
+# 机器连不上 Apple TSA 时用 --timestamp-url 指定其他 TSA
+TIMESTAMP_URL="${TIMESTAMP_URL:-}"
 SKIP_NOTARIZE=0
 NOTARIZE_ONLY=0
 DRY_RUN=0
@@ -50,6 +53,7 @@ while [[ $# -gt 0 ]]; do
         --key-id) AC_API_KEY_ID="$2"; shift 2;;
         --issuer) AC_API_ISSUER_ID="$2"; shift 2;;
         --identity) APP_SIGN_IDENTITY="$2"; shift 2;;
+        --timestamp-url) TIMESTAMP_URL="$2"; shift 2;;
         --skip-notarize) SKIP_NOTARIZE=1; shift;;
         --notarize-only) NOTARIZE_ONLY=1; shift;;
         --test-mode) TEST_MODE=1; SKIP_NOTARIZE=1; shift;;
@@ -143,6 +147,51 @@ for kc in "$HOME/Library/Keychains/login.keychain-db" "$HOME/Library/Keychains/b
 done
 
 # ---------- 3. 签名 ----------
+
+# 构建时间戳相关 flag。留空走 codesign 默认 TSA（Apple 的 timestamp.apple.com），
+# 机器连不上时通过 --timestamp-url 指定其他 TSA。
+TS_FLAGS=(--timestamp)
+[[ -n "$TIMESTAMP_URL" ]] && TS_FLAGS+=(--timestamp-url "$TIMESTAMP_URL")
+
+# 包装 codesign：
+#   - 失败且原因是 "timestamp service is not available" → 立刻给出明确错误并退出
+#     （不在每个调用点重复写 TSA 错误处理）
+#   - 失败但不是时间戳错误 → 把 stderr 透传给调用方，让它走原来的 --no-strict fallback
+#   - 成功 → 静默 return 0
+do_codesign() {
+    local target="$1"; shift
+    local err_log
+    err_log=$(mktemp -t cserr.XXXXXX)
+    if codesign --force --options=runtime "${TS_FLAGS[@]}" \
+        --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+        "$@" "$target" 2>"$err_log"; then
+        rm -f "$err_log"
+        return 0
+    fi
+    if grep -q "timestamp service is not available" "$err_log" 2>/dev/null; then
+        cat "$err_log" >&2
+        rm -f "$err_log"
+        err ""
+        err "❌ 时间戳服务 (TSA) 不可达，签名中断"
+        err "   codesign --timestamp 默认连 http://timestamp.apple.com/ts01，"
+        err "   当前机器连不上该地址（GFW / 内网 / 临时故障都可能）。"
+        err ""
+        err "   解决（任选其一）："
+        err "     1. 测连通性:  curl -v http://timestamp.apple.com/ts01"
+        err "     2. 用 --timestamp-url 指定其他 TSA，例如："
+        err "          --timestamp-url http://timestamp.digicert.com"
+        err "          --timestamp-url http://tsa.swisssign.net"
+        err "          --timestamp-url http://timestamp.entrust.net/TSS/RFC3161sha2TS"
+        err "        也可以用环境变量:  export TIMESTAMP_URL=http://timestamp.digicert.com"
+        err "     3. 临时网络问题：等几分钟重跑"
+        exit 1
+    fi
+    # 其他错误：把 stderr 透传给调用方处理（继续走 --no-strict fallback 等）
+    cat "$err_log" >&2
+    rm -f "$err_log"
+    return 1
+}
+
 if [[ $NOTARIZE_ONLY -eq 0 ]]; then
     info "签名嵌套组件..."
 
@@ -154,9 +203,7 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing helper main: $f"
-            codesign --force --options=runtime --timestamp \
-                --entitlements "$ENTITLEMENTS" \
-                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" || warn "   helper main 签名失败: $f"
+            do_codesign "$f" --entitlements "$ENTITLEMENTS" || warn "   helper main 签名失败: $f"
         done < <(find "$FW" -path "*.app/Contents/MacOS/*" -type f 2>/dev/null | sort)
 
         # 2) 扫描 framework 内部 Mach-O (优化：避开 Current 链接，扩充过滤名单)
@@ -179,10 +226,9 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing macho: $f"
-            if ! codesign --force --options=runtime --timestamp \
-                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f"; then
+            if ! do_codesign "$f"; then
                 warn "   retry with --no-strict: $f"
-                codesign --force --no-strict --options=runtime --timestamp \
+                codesign --force --no-strict --options=runtime "${TS_FLAGS[@]}" \
                     --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" || warn "   macho 签名最终失败: $f"
             fi
         done < <(awk -F/ '{print NF, $0}' "$MACHO_LIST" | sort -rn | cut -d' ' -f2-)
@@ -192,18 +238,16 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing helper app: $f"
-            codesign --force --options=runtime --timestamp \
-                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" || warn "   helper 签名失败: $f"
+            do_codesign "$f" || warn "   helper 签名失败: $f"
         done < <(find "$FW" -maxdepth 2 -name "*.app" -type d 2>/dev/null | sort)
 
         # 4) framework 顶层
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing framework bundle: $f"
-            if ! codesign --force --options=runtime --timestamp \
-                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f"; then
+            if ! do_codesign "$f"; then
                 warn "   retry with --no-strict: $f"
-                codesign --force --no-strict --options=runtime --timestamp \
+                codesign --force --no-strict --options=runtime "${TS_FLAGS[@]}" \
                     --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" || warn "   framework 签名最终失败: $f"
             fi
         done < <(find "$FW" -maxdepth 2 -name "*.framework" 2>/dev/null | sort)
@@ -212,14 +256,11 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
     # 5) 主二进制
     [[ ! -f "$MAIN_BIN" ]] && { err "找不到主二进制: $MAIN_BIN"; exit 1; }
     info "签名主二进制 (含 entitlements): $MAIN_BIN"
-    codesign --force --options=runtime --timestamp \
-        --entitlements "$ENTITLEMENTS" \
-        --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$MAIN_BIN" || { err "主二进制签名失败"; exit 1; }
+    do_codesign "$MAIN_BIN" --entitlements "$ENTITLEMENTS" || { err "主二进制签名失败"; exit 1; }
 
     # 6) 主 App 顶层
     info "签名主 App: $APP_PATH"
-    codesign --force --options=runtime --timestamp \
-        --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$APP_PATH" || { err "主 App 签名失败"; exit 1; }
+    do_codesign "$APP_PATH" || { err "主 App 签名失败"; exit 1; }
 
     # 7) 冒烟自检
     info "本机 verify..."
