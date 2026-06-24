@@ -241,6 +241,10 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
     #    Electron 主进程会在 v8::Context::FromSnapshot 阶段 SIGTRAP 崩（brk 0），
     #    现象是打开 .app 立刻闪退，crashlog 栈停在 ElectronMain + 200 左右。
     #    提前在这里 fail-fast，比打包公证完再被打回来省时间。
+    #
+    #    ⚠️ 注意要读主二进制（$MAIN_BIN）而不是 .app bundle（$APP_PATH），
+    #    因为步骤 5 签主二进制时传了 --entitlements，步骤 6 签 .app 时没传，
+    #    所以 .app 的 signature 里 entitlements 是空的，必须读主二进制。
     info "entitlement 自检..."
     REQUIRED_ENTS=(
         "com.apple.security.cs.allow-jit"
@@ -248,7 +252,12 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         "com.apple.security.cs.allow-dyld-environment-variables"
         "com.apple.security.cs.disable-library-validation"
     )
-    DUMPED_ENTS=$(codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null)
+    # 主二进制是 entitlements 实际签名的地方
+    DUMPED_ENTS=$(codesign -d --entitlements - --xml "$MAIN_BIN" 2>/dev/null)
+    if [[ -z "$DUMPED_ENTS" ]]; then
+        # 兜底：某些工作流把 entitlements 放在 .app 上
+        DUMPED_ENTS=$(codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null)
+    fi
     MISSING_ENTS=()
     for k in "${REQUIRED_ENTS[@]}"; do
         if ! grep -qF "$k" <<<"$DUMPED_ENTS"; then
