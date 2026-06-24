@@ -174,4 +174,7 @@ A: 没成功 staple。重跑 `xcrun stapler staple "YourApp.app"`。
 A: 签名顺序错。本脚本已按"嵌套从内到外"顺序签名，正常使用不会出现。
 
 **Q: `verify` 失败但脚本仍报"签名完成"**
-A: 旧版 Electron 框架结构不规范（`bundle format is ambiguous`），脚本自动用 `--no-strict` 回退。Apple notarytool 对这种结构能接受。
+A: 旧版脚本会回退到 `--no-strict`，已移除。最新版会直接报错并退出，请把 `codesign --verify --strict --verbose=2` 的输出贴上来排查（常见是某层 framework 的 Mach-O 漏签或 `Info.plist` 的 `CFBundleIdentifier` 跟签名身份不匹配）。
+
+**Q: 公证失败 `The signature of the binary is invalid`（多个 architecture）**
+A: 主 .app 不应该用 `codesign --deep` 一次性签，会破坏 universal binary 的 slice 级 code directory。本脚本已改为：先签 Mach-O 单文件，再签 helper / framework / 主 .app，全程不碰 `--deep`，并在签名后用 `codesign --verify --strict` 自检。

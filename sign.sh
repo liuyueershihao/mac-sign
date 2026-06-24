@@ -221,14 +221,6 @@ if [[ ${#LIST_LOCKED[@]} -gt 0 ]]; then
 fi
 
 # ---------- 3. 签名 ----------
-sign_one() {
-    local target="$1"
-    codesign --force --deep --options=runtime --timestamp \
-        --entitlements "$ENTITLEMENTS" \
-        --sign "$APP_SIGN_IDENTITY" \
-        --keychain "$KEYCHAIN_PATH" \
-        "$target"
-}
 
 if [[ $DRY_RUN -eq 1 ]]; then
     cat <<EOF
@@ -252,70 +244,110 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
     info "签名嵌套组件..."
 
     FW="$APP_PATH/Contents/Frameworks"
+    MAIN_BIN="$APP_PATH/Contents/MacOS/$APP_NAME"
+
+    # ----------------------------------------------------------------
+    # 关键原则：不要在任何地方用 --deep
+    #   --deep 会让 codesign 重写 universal binary 的 slice 级 code directory，
+    #   写出来的东西跟 bundle 的 CodeResources 对不上，本地 --no-strict 看不出来，
+    #   Apple notary 严格校验就会判 "The signature of the binary is invalid"。
+    # 正确顺序：Mach-O 单文件 -> 内层 bundle -> 外层 bundle，逐层向外签。
+    # ----------------------------------------------------------------
+
     if [[ -d "$FW" ]]; then
-        # 1) Helper apps（独立的 .app）
+        # 1) helper app 的主二进制（路径形如 .../XXX.app/Contents/MacOS/XXX）
+        #    先单独签，给 entitlements，让 helper 的 CodeResources 抓的是带 entitlements 的 hash
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
-            echo "   signing helper app: $f"
-            codesign --force --deep --options=runtime --timestamp \
+            echo "   signing helper main: $f"
+            codesign --force --options=runtime --timestamp \
                 --entitlements "$ENTITLEMENTS" \
-                --sign "$APP_SIGN_IDENTITY" \
-                --keychain "$KEYCHAIN_PATH" \
-                "$f"
-        done < <(find "$FW" -maxdepth 2 -name "*.app" -type d 2>/dev/null | sort)
+                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+                "$f" || warn "   helper main 签名失败: $f"
+        done < <(find "$FW" -path "*.app/Contents/MacOS/*" -type f 2>/dev/null | sort)
 
-        # 2) 找出所有 framework 内部 Mach-O（包括无扩展名的）
-        #    从深到浅排序（先签最深的），保证嵌套签名的正确性
-        info "  扫描 Mach-O 二进制..."
+        # 2) 扫描 framework 内部 Mach-O（不含 helper main，已在步骤 1 签过）
+        #    同时跳过符号链接：framework 顶层 X.framework/X 是指向
+        #    X.framework/Versions/A/X 的 symlink，再签一次会重复且会在 notary
+        #    那边产生 "Unable to notarize" 警告
+        info "  扫描 framework Mach-O 二进制..."
         MACHO_LIST=$(mktemp -t macho.XXXXXX)
         find "$FW" -type f 2>/dev/null | while IFS= read -r ff; do
+            # 符号链接直接跳过（指向已签过的真实文件）
+            [[ -L "$ff" ]] && continue
+            # helper 主二进制已在步骤 1 签过，这里别再动它
+            case "$ff" in
+                *.app/Contents/MacOS/*) continue ;;
+            esac
+            # 明显非 Mach-O 的资源
             case "$ff" in
                 */Info.plist|*.plist|*.txt|*.html|*.json|*.png|*.icns|*.strings|*.pak|*.bin) continue ;;
                 *.lproj/*) continue ;;
+                */_CodeSignature/*) continue ;;
             esac
             if file -b "$ff" 2>/dev/null | grep -q "Mach-O"; then
                 echo "$ff" >>"$MACHO_LIST"
             fi
         done
 
-        # 按深度从深到浅排序
+        # 按目录深度从深到浅排序（先签最深的）
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing macho: $f"
-            if ! codesign --force --options=runtime --timestamp \
-                --sign "$APP_SIGN_IDENTITY" \
-                --keychain "$KEYCHAIN_PATH" \
-                "$f" 2>/dev/null; then
-                # 失败时用 --no-strict 重试（兼容 Electron Framework 内部结构）
-                warn "   retry with --no-strict: $f"
-                codesign --force --no-strict --options=runtime --timestamp \
-                    --sign "$APP_SIGN_IDENTITY" \
-                    --keychain "$KEYCHAIN_PATH" \
-                    "$f" || warn "   macho 签名最终失败: $f"
-            fi
+            codesign --force --options=runtime --timestamp \
+                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+                "$f" || warn "   macho 签名失败: $f"
         done < <(awk -F/ '{print NF, $0}' "$MACHO_LIST" | sort -rn | cut -d' ' -f2-)
         rm -f "$MACHO_LIST"
 
-        # 3) framework 顶层
+        # 3) helper .app 顶层（不再用 --deep，内部主二进制已签好）
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            echo "   signing helper app: $f"
+            codesign --force --options=runtime --timestamp \
+                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+                "$f" || warn "   helper 签名失败: $f"
+        done < <(find "$FW" -maxdepth 2 -name "*.app" -type d 2>/dev/null | sort)
+
+        # 4) framework 顶层（不再用 --deep，内部 Mach-O 已签好）
         while IFS= read -r f; do
             [[ -z "$f" ]] && continue
             echo "   signing framework bundle: $f"
-            if ! codesign --force --options=runtime --timestamp \
-                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" 2>/dev/null; then
-                codesign --force --no-strict --options=runtime --timestamp \
-                    --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" "$f" || true
-            fi
+            codesign --force --options=runtime --timestamp \
+                --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+                "$f" || warn "   framework 签名失败: $f"
         done < <(find "$FW" -maxdepth 2 -name "*.framework" 2>/dev/null | sort)
     fi
 
-    # 4) 主二进制 + 主 App：合二为一，用 --deep --force --no-strict 一次性签
-    # 避免手动分步签产生的 universal binary slice 签名不一致问题
-    info "签名主 App (含 universal binary + entitlements): $APP_PATH"
-    codesign --force --deep --no-strict --options=runtime --timestamp \
+    # 5) 主二进制：单独签一次（带 entitlements）
+    #    绝对不能用 --deep 走整个 .app，否则 universal binary 的 slice 签名会再次被破坏
+    if [[ ! -f "$MAIN_BIN" ]]; then
+        err "找不到主二进制: $MAIN_BIN"
+        exit 1
+    fi
+    info "签名主二进制 (含 entitlements): $MAIN_BIN"
+    codesign --force --options=runtime --timestamp \
         --entitlements "$ENTITLEMENTS" \
-        --sign "$APP_SIGN_IDENTITY" \
-        --keychain "$KEYCHAIN_PATH" \
-        "$APP_PATH"
+        --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+        "$MAIN_BIN" || { err "主二进制签名失败"; exit 1; }
+
+    # 6) 主 .app 顶层：内部全部已签好，这里只签 bundle 本身
+    info "签名主 App: $APP_PATH"
+    codesign --force --options=runtime --timestamp \
+        --sign "$APP_SIGN_IDENTITY" --keychain "$KEYCHAIN_PATH" \
+        "$APP_PATH" || { err "主 App 签名失败"; exit 1; }
+
+    # 7) 冒烟自检：本机用严格模式跑一次 verify，失败立刻报错
+    info "本机 verify（严格模式）..."
+    if codesign --verify --strict --verbose=2 "$APP_PATH" 2>&1 | tee /tmp/codesign-verify.$$.log; then
+        :
+    else
+        cat /tmp/codesign-verify.$$.log >&2
+        rm -f /tmp/codesign-verify.$$.log
+        err "本机 verify 失败，请勿提交公证"
+        exit 1
+    fi
+    rm -f /tmp/codesign-verify.$$.log
 
     ok "签名完成"
 fi
