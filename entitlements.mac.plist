@@ -2,23 +2,36 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- V8 JIT 编译：缺这个 V8 会拒绝生成 code stub -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
+
+	<!-- V8 把 JIT code page 标成 writable+executable -->
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
 	<true/>
+
+	<!-- ⚠️ 必须有：V8 启动时读 v8_context_snapshot.bin / 设 dyld env vars。
+	     缺这个会触发 v8::Context::FromSnapshot 的 DCHECK，进程在
+	     ElectronMain + 200 阶段 SIGTRAP 退出（brk 0 断点），
+	     跟打开应用就崩、日志报 EXC_BREAKPOINT 的现场完全一致。 -->
 	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
 	<true/>
+
+	<!-- 加载未签名的 Electron 内部 dylib（libffmpeg / libvk_swiftshader 等） -->
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
-	<key>com.apple.security.cs.allow-network-client</key>
+
+	<!-- 允许调试器 attach（开发期用，正式发布前可去掉） -->
+	<key>com.apple.security.cs.debugger</key>
 	<true/>
-	<key>com.apple.security.cs.allow-network-server</key>
+
+	<!-- 网络出站访问：com.apple.security.network.* 是 sandbox entitlement，
+	     sandbox 应用才生效；非 sandbox 的应用要用 cs.* 前缀（已废弃但仍可用），
+	     缺省情况下 hardened runtime 默认允许网络。 -->
+	<key>com.apple.security.network.client</key>
 	<true/>
-	<key>com.apple.security.device.camera</key>
+	<key>com.apple.security.network.server</key>
 	<true/>
-	<key>com.apple.security.device.audio-input</key>
-	<true/>
-	<key>com.apple.security.device.bluetooth</key>
-	<true/>
+
 </dict>
 </plist>

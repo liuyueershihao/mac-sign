@@ -236,6 +236,33 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         exit 1
     fi
     rm -f "$VERIFY_LOG"
+
+    # 8) 关键 entitlement 自检：少了这 4 条里任意一条，
+    #    Electron 主进程会在 v8::Context::FromSnapshot 阶段 SIGTRAP 崩（brk 0），
+    #    现象是打开 .app 立刻闪退，crashlog 栈停在 ElectronMain + 200 左右。
+    #    提前在这里 fail-fast，比打包公证完再被打回来省时间。
+    info "entitlement 自检..."
+    REQUIRED_ENTS=(
+        "com.apple.security.cs.allow-jit"
+        "com.apple.security.cs.allow-unsigned-executable-memory"
+        "com.apple.security.cs.allow-dyld-environment-variables"
+        "com.apple.security.cs.disable-library-validation"
+    )
+    DUMPED_ENTS=$(codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null)
+    MISSING_ENTS=()
+    for k in "${REQUIRED_ENTS[@]}"; do
+        if ! grep -qF "$k" <<<"$DUMPED_ENTS"; then
+            MISSING_ENTS+=("$k")
+        fi
+    done
+    if [[ ${#MISSING_ENTS[@]} -gt 0 ]]; then
+        err "以下关键 entitlement 缺失，会导致打开 .app 立刻 SIGTRAP 崩溃："
+        for k in "${MISSING_ENTS[@]}"; do err "  - $k"; done
+        err "请在 $ENTITLEMENTS 里补上后重新签名"
+        exit 1
+    fi
+    ok "关键 entitlement 检查通过"
+
     ok "签名部分完成"
 fi
 
