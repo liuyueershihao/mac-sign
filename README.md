@@ -181,3 +181,6 @@ A: 主 .app 用了 `codesign --deep` 会破坏 universal binary 的 slice 级 co
 
 **Q: framework 报 `bundle format is ambiguous (could be app or framework)`**
 A: Electron 的 `Squirrel.framework` / `ReactiveObjC.framework` / `Mantle.framework` / `Electron Framework.framework` 结构对严格 codesign 来说有歧义（顶层 X.framework/X 快捷方式、Info.plist 位置等）。脚本会先严格签，失败时自动用 `--no-strict` 重试，Apple notarytool 接受这种结构（只会产生 `Unable to notarize` 警告，不影响通过）。
+
+**Q: 公证通过，但打开 .app 立刻闪退，crashlog 是 `EXC_BREAKPOINT (SIGTRAP)` / `brk 0`，栈停在 `ElectronMain + 200` / `v8::Context::FromSnapshot`**
+A: V8 启动时要把 `v8_context_snapshot.bin` 加载进 isolate，hardened runtime 模式下需要 `com.apple.security.cs.allow-dyld-environment-variables`，缺了 V8 的 DCHECK 触发 `__builtin_trap()` 直接 SIGTRAP 杀进程。本脚本在签完后会读回 entitlements 校验这 4 条（`allow-jit` / `allow-unsigned-executable-memory` / `allow-dyld-environment-variables` / `disable-library-validation`），少哪条都会在签名阶段立刻报错，不会跑到公证完才发现闪退。如果校验被跳过/绕过，记得检查 `entitlements.mac.plist` 里有 `cs.allow-dyld-environment-variables`（Electron 官方文档明确列为必需）。
