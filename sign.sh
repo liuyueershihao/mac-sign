@@ -351,20 +351,26 @@ if [[ $NOTARIZE_ONLY -eq 0 ]]; then
         "$APP_PATH" || { err "主 App 签名失败"; exit 1; }
 
     # 7) 冒烟自检：本机跑一次 verify。
-    #    注意：不用 --strict。Electron framework（特别是 Squirrel/ReactiveObjC/Mantle）
-    #    本身在严格 codesign 下会触发 "bundle format is ambiguous" 警告，
-    #    Apple notarytool 对这种结构是接受的；强行 --strict 会把无害警告误判成失败。
-    #    如果以后上游 Electron 修了这个结构问题，可以再加回 --strict。
+    #    codesign --verify 即便不用 --strict，碰到 Electron 那种 .framework/X
+    #    顶层快捷方式时也会以非零退出码报 "bundle format is ambiguous"。
+    #    这个是上游打包工具产出的结构问题，Apple notarytool 接受。
+    #    我们的策略：跑 verify，如果退出码非零，但输出里只有这一个无害警告，
+    #    就当 warn 放过；只有出现真正的签名错误才 fail-fast。
     info "本机 verify..."
-    if codesign --verify --verbose=2 "$APP_PATH" 2>&1 | tee /tmp/codesign-verify.$$.log; then
-        :
+    VERIFY_LOG=$(mktemp -t csverify.XXXXXX)
+    if codesign --verify --verbose=2 "$APP_PATH" >"$VERIFY_LOG" 2>&1; then
+        ok "verify 通过"
+    elif grep -q "bundle format is ambiguous" "$VERIFY_LOG" \
+        && ! grep -qE "not signed at all|invalid signature|rejected|code object is not signed|does not include a secure timestamp" "$VERIFY_LOG"; then
+        warn "verify 仅报 'bundle format is ambiguous'（Electron framework 固有问题，Apple notarytool 接受）："
+        sed 's/^/      /' "$VERIFY_LOG"
     else
-        cat /tmp/codesign-verify.$$.log >&2
-        rm -f /tmp/codesign-verify.$$.log
+        cat "$VERIFY_LOG" >&2
+        rm -f "$VERIFY_LOG"
         err "本机 verify 失败，请勿提交公证"
         exit 1
     fi
-    rm -f /tmp/codesign-verify.$$.log
+    rm -f "$VERIFY_LOG"
 
     ok "签名完成"
 fi
